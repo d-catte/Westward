@@ -111,5 +111,5 @@ jobs:
         with:
           name: westward-installer-${{ matrix.os }}
           path: |
-            target/release/installer*
-            !target/release/installer.pdb
+            installer/target/release/installer*
+            !installer/target/release/installer.pdb
