@@ -91,9 +91,25 @@ jobs:
           mkdir -p native
           native-image --link-at-build-time -jar build/libs/westward.jar native/westward-${{ steps.gradle_version.outputs.version }}
 
-      - name: Upload Native Image (Unix)
+      - name: Upload Native Image
         uses: actions/upload-artifact@v4
         with:
           name: westward-${{ matrix.os }}
           path: |
             native/*westward-${{ steps.gradle_version.outputs.version }}*
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Compile Native Installer
+        run: |
+          cd installer
+          cargo build -r
+
+      - name: Upload Native Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: westward-installer-${{ matrix.os }}
+          path: |
+            target/release/installer*
+            !target/release/installer.pdb
