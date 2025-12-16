@@ -3,7 +3,7 @@ name: Gradle Build and PMD Analysis
 on:
   push:
     branches-ignore:
-      - 'main'
+      - 'master'
   workflow_dispatch:
 
 jobs:
@@ -42,7 +42,9 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.13"
+          gradle-version: "9.2.1"
 
       - name: Build with Gradle Wrapper
-        run: ./gradlew build --daemon --parallel
+        run: |
+          chmod +x gradlew
+          ./gradlew build --daemon --parallel
