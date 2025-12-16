@@ -38,3 +38,14 @@ bin/
 ### Mac OS ###
 .DS_Store
 .qodo
+
+.qodo
+/defaultData
+imgui.ini
+
+.qodo
+/gameData
+/asset
+/asset
+installer/Cargo.lock
+/installer/target
