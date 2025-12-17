@@ -102,14 +102,38 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
       - name: Compile Native Installer
+        run: cargo build --release
+        working-directory: installer
+
+      # TODO The app file must be created before putting it in a dmg file
+      - name: Create DMG (macOS)
+        if: runner.os == 'macOS'
         run: |
-          cd installer
-          cargo build -r
+          mkdir -p installer/output
+          cp installer/target/release/installer installer/output/
+
+          brew install create-dmg
+
+          create-dmg \
+            --volname "Westward Launcher" \
+            --volicon "icon.icns" \
+            --background "background.png" \
+            "installer.dmg" \
+            "installer/output"
 
       - name: Upload Native Installer
         uses: actions/upload-artifact@v4
+        if: runner.os != 'macOS'
         with:
           name: westward-installer-${{ matrix.os }}
           path: |
             installer/target/release/installer*
             !installer/target/release/installer.pdb
+
+      - name: Upload Native Installer (MacOS)
+        uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: westward-installer-${{ matrix.os }}
+          path: |
+            installer/output/installer.dmg
