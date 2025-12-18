@@ -181,4 +181,4 @@ jobs:
         with:
           name: westward-launcher-${{ matrix.os }}
           path: |
-            launcher/output/launcher.dmg
+            launcher.dmg
