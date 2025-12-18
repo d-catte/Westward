@@ -157,7 +157,8 @@ jobs:
       
           create-dmg \
           --volname "$APP_NAME" \
-          --volicon "icon.icns" \
+          --volicon "launcher/output/icon.icns" \
+          --background "launcher/output/background.png" \
           --window-size 600 400 \
           --icon-size 128 \
           --icon "$APP_NAME.app" 200 200 \
