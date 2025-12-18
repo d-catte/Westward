@@ -1,42 +1,64 @@
+use std::{env, fs};
 use std::io::Write;
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read};
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{exit, Command};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use chrono::{DateTime, Utc};
 use eframe::egui;
+use eframe::egui::{FontId, RichText, Vec2};
 use futures_util::StreamExt;
 use reqwest::blocking::Client;
 use reqwest::Response;
 use semver::Version;
 use serde::Deserialize;
+use tokio::runtime::Runtime;
 
 const URL: &str = "https://api.github.com/repos/d-catte/Westward/releases/latest";
 static PROGRESS: LazyLock<Mutex<f32>> = LazyLock::new(|| Mutex::new(0.0));
+static RT: LazyLock<Mutex<Runtime>> = LazyLock::new(|| Mutex::new(Runtime::new().unwrap()));
 
-fn main() -> Result<(), eframe::Error> {
-    let updates: Option<(Release, Status)> = check_for_updates();
-    if let Some(update) = updates {
-        let options = eframe::NativeOptions::default();
-        eframe::run_native(
-            "Westward Updater",
-            options,
-            Box::new(|_| Ok(Box::new(App::create(update.0, update.1)))),
-            )
-    } else {
-        launch_westward();
-        Ok(())
+fn main() {
+    let mut updates: Option<(Release, Status)> = check_for_updates(false);
+    for _ in 0..2  {
+        if let Some(ref update) = updates {
+            let icon = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon.png"))
+                .expect("Failed to load icon");
+            let options = eframe::NativeOptions {
+
+                viewport: egui::ViewportBuilder {
+                    resizable: Some(false),
+                    inner_size: Some(Vec2::new(510.0, 200.0)),
+                    ..Default::default()
+                }
+                    .with_icon(Arc::new(icon)),
+                ..Default::default()
+            };
+            eframe::run_native(
+                "Westward Launcher",
+                options,
+                Box::new(|_| Ok(Box::new(App::create(update.0.clone(), update.1.clone())))),
+            ).unwrap()
+        } else {
+            launch_westward();
+            updates = check_for_updates(true);
+        }
     }
 }
 
-fn check_for_updates() -> Option<(Release, Status)> {
+fn check_for_updates(corrupt: bool) -> Option<(Release, Status)> {
     let latest_release = get_latest_release();
     if let Ok(latest_release) = latest_release {
         let latest_version_tag = latest_release.parse_tag().unwrap();
         let latest_version = get_latest_version(&latest_release);
         if latest_version.is_some() {
+            if corrupt {
+                return Some((latest_release, Status::CorruptedInstall));
+            }
             if let Some(current_version) = get_current_version() {
                 if current_version < latest_version_tag {
                     return Some((latest_release, Status::UpdateAvailable))
@@ -52,7 +74,7 @@ fn check_for_updates() -> Option<(Release, Status)> {
 fn install(latest_release: &Release, asset: &Asset) {
     let clone_url = asset.browser_download_url.clone();
     let clone_tag = latest_release.tag_name.clone();
-    tokio::spawn(async move {
+    RT.lock().unwrap().spawn(async move {
         if let Err(e) = download_latest_westward(&*clone_url).await {
             eprintln!("Download failed: {}", e);
         } else {
@@ -134,14 +156,21 @@ pub async fn download_latest_westward(url: &str) -> Result<(), Box<dyn Error>> {
         format!("westward{}", extension_type)
     };
 
+    println!("Connecting to GitHub for download: {}", url);
     let client = reqwest::Client::new();
     let response: Response = client
         .get(url)
         .header("User-Agent", "westward-updater")
+        .header("Accept", "application/octet-stream")
         .send()
-        .await?
+        .await
+        .map_err(|e| {
+            eprintln!("Reqwest error: {:#?}", e);
+            e
+        })?
         .error_for_status()?;
 
+    println!("Downloading: {}", url);
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
 
@@ -159,7 +188,6 @@ pub async fn download_latest_westward(url: &str) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Ensure we end at exactly 100%
     *PROGRESS.lock().unwrap() = 1.0;
 
     Ok(())
@@ -167,21 +195,36 @@ pub async fn download_latest_westward(url: &str) -> Result<(), Box<dyn Error>> {
 
 fn launch_westward() {
     let executable = if cfg!(target_os = "windows") {
-        "westward.exe"
+        ".\\westward.exe"
     } else {
         "./westward"
     };
 
-    // Launch Westward
-    Command::new(executable)
-        .spawn()
-        .expect("Failed to launch westward");
+    let mut cmd = Command::new(executable);
+    cmd.current_dir(env::current_dir().unwrap());
 
-    // Exit the updater
+    #[cfg(target_os = "windows")]
+    {
+        // Detach from parent console & process group
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+    }
+
+    let handle = cmd.spawn();
+    if let Err(e) = handle {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            // Return before exit()
+            println!("Exiting; Corrupted Westward Install");
+            return;
+        }
+    }
+
     exit(0);
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct Release {
     tag_name: String,
     published_at: String,
@@ -194,15 +237,16 @@ impl Release {
     }
 }
 
+#[derive(Clone)]
 enum Status {
     NotInstalled,
     UpdateAvailable,
     Downloading,
     FailedToDownload,
+    CorruptedInstall,
 }
 
-#[derive(Debug, Deserialize)]
-#[derive(Clone)]
+#[derive(Debug, Deserialize, Clone)]
 struct Asset {
     name: String,
     browser_download_url: String,
@@ -225,47 +269,83 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             match &self.status {
                 Status::NotInstalled => {
-                    ui.label("Welcome to the Westward Installer");
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("Welcome to the Westward Launcher").font(FontId::proportional(30.0)));
+                        ui.add_space(30.0);
 
-                    if ui.button(format!("Install Westward {}", &self.release.tag_name)).clicked() {
-                        let asset = get_latest_version(&self.release);
-                        if let Some(asset) = asset {
-                            self.status = Status::Downloading;
-                            install(&self.release, &asset)
-                        } else {
-                            self.error = "No asset found".to_string();
-                            self.status = Status::FailedToDownload;
+                        if ui.button(format!("Install Westward {}", &self.release.tag_name)).clicked() {
+                            let asset = get_latest_version(&self.release);
+                            if let Some(asset) = asset {
+                                self.status = Status::Downloading;
+                                install(&self.release, &asset)
+                            } else {
+                                self.error = "No asset found".to_string();
+                                self.status = Status::FailedToDownload;
+                            }
                         }
-                    }
+                    });
                 }
                 Status::UpdateAvailable => {
-                    ui.label("Welcome to the Westward Updater");
-                    ui.label(format!("Update Available: {} from {}", &self.release.tag_name, format_github_time(&self.release.published_at).unwrap()));
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("Welcome to the Westward Launcher").font(FontId::proportional(30.0)));
+                        ui.add_space(10.0);
+                        ui.label(format!("Update Available: {} from {}", &self.release.tag_name, format_github_time(&self.release.published_at).unwrap()));
+                        ui.add_space(30.0);
 
-                    if ui.button(format!("Update to Westward {}", &self.release.tag_name)).clicked() {
-                        let asset = get_latest_version(&self.release);
-                        if let Some(asset) = asset {
-                            self.status = Status::Downloading;
-                            install(&self.release, &asset)
-                        } else {
-                            self.error = "No asset found".to_string();
-                            self.status = Status::FailedToDownload;
+                        if ui.button(format!("Update to Westward {}", &self.release.tag_name)).clicked() {
+                            let asset = get_latest_version(&self.release);
+                            if let Some(asset) = asset {
+                                self.status = Status::Downloading;
+                                install(&self.release, &asset)
+                            } else {
+                                self.error = "No asset found".to_string();
+                                self.status = Status::FailedToDownload;
+                            }
                         }
-                    }
+                    });
                 }
                 Status::Downloading => {
-                    ui.label("Downloading...");
-                    ui.add(egui::ProgressBar::new(*PROGRESS.lock().unwrap()));
+                    ui.vertical_centered(|ui| {
+                        ui.label("Downloading...");
+                        ui.add_space(30.0);
+                        ui.add(egui::ProgressBar::new(*PROGRESS.lock().unwrap()));
+                    });
                 }
                 Status::FailedToDownload => {
-                    ui.label("Failed to download...");
-                    ui.label(format!("{}", &self.error));
-                    if ui.button("Attempt Westward Launch").clicked() {
-                        launch_westward();
-                    }
-                    if ui.button("Exit").clicked() {
-                        exit(0);
-                    }
+                    ui.vertical_centered(|ui| {
+                        ui.label("Failed to download...");
+                        ui.add_space(10.0);
+                        ui.label(format!("{}", &self.error));
+                        ui.add_space(30.0);
+                        if ui.button("Attempt Westward Launch").clicked() {
+                            launch_westward();
+                        }
+                        if ui.button("Exit").clicked() {
+                            exit(0);
+                        }
+                    });
+                },
+                &Status::CorruptedInstall => {
+                    ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("Welcome to the Westward Launcher").font(FontId::proportional(30.0)));
+                        ui.add_space(10.0);
+                        ui.label("It appears that your installation of Westward is corrupted");
+                        ui.add_space(30.0);
+
+                        if ui.button(format!("Reinstall Westward {}", &self.release.tag_name)).clicked() {
+                            if fs::exists("version").unwrap() {
+                                fs::remove_file("version").unwrap();
+                            }
+                            let asset = get_latest_version(&self.release);
+                            if let Some(asset) = asset {
+                                self.status = Status::Downloading;
+                                install(&self.release, &asset)
+                            } else {
+                                self.error = "No asset found".to_string();
+                                self.status = Status::FailedToDownload;
+                            }
+                        }
+                    });
                 }
             }
         });

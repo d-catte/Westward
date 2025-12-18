@@ -49,3 +49,6 @@ imgui.ini
 /asset
 launcher/Cargo.lock
 /launcher/target
+/launcher/gameData
+launcher/westward.exe
+launcher/version
