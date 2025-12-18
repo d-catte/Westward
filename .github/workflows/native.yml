@@ -119,7 +119,6 @@ jobs:
           chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
 
           cp launcher/output/icon.icns "$APP_DIR/Contents/Resources/icon.icns"
-          cp launcher/output/background.png "$APP_DIR/Contents/Resources/background.png"
 
           cat > "$APP_DIR/Contents/Info.plist" <<EOF
             <?xml version="1.0" encoding="UTF-8"?>
@@ -159,7 +158,6 @@ jobs:
           create-dmg \
           --volname "$APP_NAME" \
           --volicon "icon.icns" \
-          --background "background.png" \
           --window-size 600 400 \
           --icon-size 128 \
           --icon "$APP_NAME.app" 200 200 \
