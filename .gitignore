@@ -47,5 +47,5 @@ imgui.ini
 /gameData
 /asset
 /asset
-installer/Cargo.lock
-/installer/target
+launcher/Cargo.lock
+/launcher/target

@@ -101,39 +101,84 @@ jobs:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Compile Native Installer
+      - name: Compile Native Launcher
         run: cargo build --release
-        working-directory: installer
+        working-directory: launcher
 
-      # TODO The app file must be created before putting it in a dmg file
-      - name: Create DMG (macOS)
+      - name: Create macOS .app and DMG
         if: runner.os == 'macOS'
         run: |
-          mkdir -p installer/output
-          cp installer/target/release/installer installer/output/
+          APP_NAME="Westward Launcher"
+          BIN_NAME="launcher"
+          APP_DIR="launcher/output/${APP_NAME}.app"
 
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          mkdir -p "$APP_DIR/Contents/Resources"
+
+          cp launcher/target/release/$BIN_NAME "$APP_DIR/Contents/MacOS/$BIN_NAME"
+          chmod +x "$APP_DIR/Contents/MacOS/$BIN_NAME"
+
+          cp icon.icns "$APP_DIR/Contents/Resources/icon.icns"
+
+          cat > "$APP_DIR/Contents/Info.plist" <<EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+            "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+          <key>CFBundleName</key>
+          <string>$APP_NAME</string>
+      
+          <key>CFBundleExecutable</key>
+          <string>$BIN_NAME</string>
+      
+          <key>CFBundleIdentifier</key>
+          <string>io.github.dcatte.westward.launcher</string>
+      
+          <key>CFBundleVersion</key>
+          <string>1.0.0</string>
+      
+          <key>CFBundleShortVersionString</key>
+          <string>1.0.0</string>
+      
+          <key>CFBundlePackageType</key>
+          <string>APPL</string>
+      
+          <key>CFBundleIconFile</key>
+          <string>icon</string>
+      
+          <key>LSMinimumSystemVersion</key>
+          <string>11.0</string>
+          </dict>
+          </plist>
+          EOF
+      
           brew install create-dmg
-
+      
           create-dmg \
-            --volname "Westward Launcher" \
-            --volicon "icon.icns" \
-            --background "background.png" \
-            "installer.dmg" \
-            "installer/output"
+          --volname "$APP_NAME" \
+          --volicon "icon.icns" \
+          --background "background.png" \
+          --window-size 600 400 \
+          --icon-size 128 \
+          --icon "$APP_NAME.app" 200 200 \
+          --app-drop-link 400 200 \
+          "launcher.dmg" \
+          "launcher/output"
 
-      - name: Upload Native Installer
+      - name: Upload Native Launcher
         uses: actions/upload-artifact@v4
         if: runner.os != 'macOS'
         with:
-          name: westward-installer-${{ matrix.os }}
+          name: westward-launcher-${{ matrix.os }}
           path: |
-            installer/target/release/installer*
-            !installer/target/release/installer.pdb
+            launcher/target/release/launcher*
+            !launcher/target/release/launcher.pdb
 
-      - name: Upload Native Installer (MacOS)
+      - name: Upload Native Launcher (MacOS)
         uses: actions/upload-artifact@v4
         if: runner.os == 'macOS'
         with:
-          name: westward-installer-${{ matrix.os }}
+          name: westward-launcher-${{ matrix.os }}
           path: |
-            installer/output/installer.dmg
+            launcher/output/launcher.dmg
