@@ -153,7 +153,9 @@ jobs:
           </plist>
           EOF
 
+          echo "$MACOS_CERT"
           echo "$MACOS_CERT" | base64 --decode > /tmp/certificate.p12
+          file /tmp/certificate.p12
           security import /tmp/certificate.p12 -k ~/Library/Keychains/login.keychain-db -P "$MACOS_CERT_PASS" -T /usr/bin/codesign
           codesign --deep --force --verify --sign "Westward Developers" "$APP_DIR"
           xattr -dr com.apple.quarantine "$APP_DIR"
